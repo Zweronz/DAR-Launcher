@@ -26,12 +26,17 @@ public class GridScaler : MonoBehaviour
         float mult = background.width / startSize.x / mGrid.maxPerLine;
         lastSize = new Vector2(mGrid.cellWidth, mGrid.cellHeight);
 
+        mult = Mathf.Clamp(mult, 0f, 0.768f);
+
         for (int i = 0; i < children.Count; i++)
         {
             children[i].GetChild(0).localScale = Vector3.one * mult;
         }
 
         Vector2 newSize = new Vector2(mGrid.cellWidth = startSize.x * mult, mGrid.cellHeight = startSize.y * mult);
+
+        mGrid.cellWidth = Mathf.Clamp(mGrid.cellWidth, 0f, 384f);
+        mGrid.cellHeight = Mathf.Clamp(mGrid.cellHeight, 0f, 268.8f);
 
         if (newSize != lastSize)
         {

@@ -15,6 +15,10 @@ public static class Bundles
 
     public const string BGMPath = "BGM";
 
+    public const string IconPath = "Icon";
+
+    public const string BackgroundPath = "Background";
+
     private static Dictionary<string, AssetBundle> cachedBundles = new Dictionary<string, AssetBundle>();
 
 
@@ -36,5 +40,15 @@ public static class Bundles
     public static AudioClip LoadBGM(string game)
     {
         return Load<AudioClip>(game, BGMPath);
+    }
+
+    public static Texture2D LoadIcon(string game)
+    {
+        return Load<Texture2D>(game, IconPath);
+    }
+
+    public static Texture2D LoadBackground(string game)
+    {
+        return Load<Texture2D>(game, BackgroundPath);
     }
 }

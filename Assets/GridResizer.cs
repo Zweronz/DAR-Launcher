@@ -8,6 +8,8 @@ public class GridResizer : MonoBehaviour
 
     public UIPanel background;
 
+    public UIScrollView scrollView;
+
     private UIGrid mGrid;
 
     private int lastSize;
@@ -30,6 +32,7 @@ public class GridResizer : MonoBehaviour
         if (lastSize != mGrid.maxPerLine)
         {
             mGrid.Reposition();
+            scrollView.ResetPosition();
         }
     }
 

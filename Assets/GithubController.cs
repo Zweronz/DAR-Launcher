@@ -74,18 +74,23 @@ public static class GithubController
             Directory.CreateDirectory(DataPath);
         }
 
-        //Routiner.Coroutine
-        //(
-            //RefreshLauncherData
-            //(()=>
-            //    {
-                    //if (!PlayerPrefs.HasKey("Launcher ID") || PlayerPrefs.GetString("Launcher ID") != ((long)LauncherData["id"]).ToString())
-                    //{
+        Routiner.Coroutine
+        (
+            RefreshLauncherData
+            (()=>
+                {
+                    if (!Directory.Exists(DownloadedDataPath) || !PlayerPrefs.HasKey("Launcher ID") || PlayerPrefs.GetString("Launcher ID") != ((long)LauncherData["id"]).ToString())
+                    {
                         Routiner.Coroutine(Download(DataZipPath, DataPath, onFinish));
-                    //}
-                //}
-            //)
-        //);
+                        PlayerPrefs.SetString("Launcher ID", ((long)LauncherData["id"]).ToString());
+                    }
+                    else if (Directory.Exists(DownloadedDataPath))
+                    {
+                        onFinish();
+                    }
+                }
+            )
+        );
     }
 
     private static IEnumerator Download(string url, string outputPath, Action onFinish)
@@ -107,6 +112,11 @@ public static class GithubController
         {
             using (MemoryStream stream = new MemoryStream())
             {
+                if (Directory.Exists(DownloadedDataPath))
+                {
+                    new DirectoryInfo(DownloadedDataPath).Delete(true);
+                }
+
                 stream.Write(downloadRequest.downloadHandler.data);
                 new FastZip().ExtractZip(stream, outputPath, FastZip.Overwrite.Always, null, null, null, false, true);
 
@@ -119,8 +129,11 @@ public static class GithubController
 
     private static IEnumerator RefreshLauncherData(Action onFinish)
     {
-        Debug.LogError(LauncherDataURL);
-        UnityWebRequest downloadRequest = new UnityWebRequest(LauncherDataURL);
+        UnityWebRequest downloadRequest = new UnityWebRequest(LauncherDataURL)
+        {
+            downloadHandler = new DownloadHandlerBuffer()
+        };
+
         yield return downloadRequest.SendWebRequest();
 
         if (downloadRequest.result == UnityWebRequest.Result.ConnectionError || downloadRequest.result == UnityWebRequest.Result.DataProcessingError || downloadRequest.result == UnityWebRequest.Result.ProtocolError)
@@ -129,7 +142,6 @@ public static class GithubController
         }
         else
         {
-            Debug.LogError(downloadRequest.downloadHandler);
             LauncherData = JObject.Parse(downloadRequest.downloadHandler.text);
             onFinish();
         }
