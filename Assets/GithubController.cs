@@ -8,6 +8,7 @@ using ICSharpCode.SharpZipLib.Zip;
 using System.IO;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Linq;
 
 public static class GithubController
 {
@@ -30,6 +31,21 @@ public static class GithubController
         get
         {
             return Path.Combine(Application.persistentDataPath, "LauncherData").Replace("\\", "/");
+        }
+    }
+
+    private static string GamePath
+    {
+        get
+        {
+            string path = Path.Combine(Application.persistentDataPath, "Games").Replace("\\", "/");
+
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+
+            return path;
         }
     }
 
@@ -57,15 +73,47 @@ public static class GithubController
 
     private static Dictionary<string, JObject> CachedData = new Dictionary<string, JObject>();
 
+    public static GameStatus currentStatus;
+
+    public static string currentGamePath, currentExecutablePath;
+
+    public static float downloadProgress;
+
+    public enum GameStatus
+    {
+        NotDownloaded,
+        UpdateNeeded,
+        Unsynced,
+        Downloaded
+    }
+
     private static string GetPath(string repository)
     {
         return Path.Combine(APIURL, Author, repository, APIPostfix).Replace("\\", "/");
+    }
+
+    private static string GetGamePath(string game)
+    {
+        string path = Path.Combine(GamePath, game).Replace("\\", "/");
+
+        if (!Directory.Exists(path))
+        {
+            Directory.CreateDirectory(path);
+        }
+        
+        return Path.Combine(GamePath, game).Replace("\\", "/");
     }
 
     public static void RedownloadData(Action onFinish)
     {
         if (downloading)
         {
+            return;
+        }
+
+        if (Application.internetReachability == NetworkReachability.NotReachable)
+        {
+            onFinish();
             return;
         }
 
@@ -93,6 +141,85 @@ public static class GithubController
         );
     }
 
+    public static void RefreshGame(string repo, Action onFinish)
+    {
+        if (Application.internetReachability == NetworkReachability.NotReachable)
+        {
+            onFinish();
+            return;
+        }
+
+        Routiner.Coroutine
+        (
+            Refresh
+            (repo, ()=>
+                {
+                    foreach (JToken token in (JArray)CachedData[repo]["assets"])
+                    {
+                        string tokenString = (string)token["name"];
+
+                        if (tokenString.EndsWith(".zip") && !tokenString.Contains("Debug"))
+                        {
+                            currentGamePath = (string)token["browser_download_url"];
+                        }
+                    }
+
+                    string id = ((long)CachedData[repo]["id"]).ToString();
+                    
+                    string path = GetGamePath(Launcher.gameList.entries.Find(x => x.GetValue("repo") == repo).id);
+                    string[] paths = Directory.GetDirectories(path);
+
+                    if (paths.Length > 0)
+                    {
+                        path = Directory.GetDirectories(path).First();
+
+                        List<string> executables = Directory.GetFiles(path).ToList().FindAll(x => x.EndsWith(".exe"));
+
+                        if (Directory.Exists(path) && executables.Count != 0)
+                        {
+                            currentStatus = PlayerPrefs.GetString("Current ID_" + repo) == id ? GameStatus.Downloaded : GameStatus.UpdateNeeded;
+                            currentExecutablePath = executables.First();
+                        }
+                        else
+                        {
+                            currentStatus = GameStatus.NotDownloaded;
+                        }
+                    }
+                    else
+                    {
+                        currentStatus = GameStatus.NotDownloaded;
+                    }
+
+                    PlayerPrefs.SetString("Current ID_" + repo, id);
+
+                    onFinish();
+                }
+            )
+        );
+    }
+
+    public static void DownloadGame(string repo, Action onFinish)
+    {
+        if (Application.internetReachability == NetworkReachability.NotReachable)
+        {
+            onFinish();
+            return;
+        }
+
+        string path = GetGamePath(Launcher.gameList.entries.Find(x => x.GetValue("repo") == repo).GetValue("name"));
+        string[] paths = Directory.GetDirectories(path);
+
+        if (paths.Length > 0)
+        {
+            new DirectoryInfo(paths.First()).Delete();
+        }
+
+        Routiner.Coroutine
+        (
+            Download(currentGamePath, GetGamePath(Launcher.gameList.entries.Find(x => x.GetValue("repo") == repo).id), onFinish)
+        );
+    }
+
     private static IEnumerator Download(string url, string outputPath, Action onFinish)
     {
         downloading = true;
@@ -102,7 +229,13 @@ public static class GithubController
             downloadHandler = new DownloadHandlerBuffer()
         };
 
-        yield return downloadRequest.SendWebRequest();
+        downloadRequest.SendWebRequest();
+
+        while (!downloadRequest.isDone)
+        {
+            downloadProgress = downloadRequest.downloadProgress;
+            yield return null;
+        }
 
         if (downloadRequest.result == UnityWebRequest.Result.ConnectionError || downloadRequest.result == UnityWebRequest.Result.DataProcessingError || downloadRequest.result == UnityWebRequest.Result.ProtocolError)
         {
@@ -134,7 +267,13 @@ public static class GithubController
             downloadHandler = new DownloadHandlerBuffer()
         };
 
-        yield return downloadRequest.SendWebRequest();
+        downloadRequest.SendWebRequest();
+
+        while (!downloadRequest.isDone)
+        {
+            downloadProgress = downloadRequest.downloadProgress;
+            yield return null;
+        }
 
         if (downloadRequest.result == UnityWebRequest.Result.ConnectionError || downloadRequest.result == UnityWebRequest.Result.DataProcessingError || downloadRequest.result == UnityWebRequest.Result.ProtocolError)
         {
@@ -149,8 +288,18 @@ public static class GithubController
 
     private static IEnumerator Refresh(string repo, Action onFinish)
     {
-        UnityWebRequest downloadRequest = new UnityWebRequest(LauncherDataURL);
-        yield return downloadRequest.SendWebRequest();
+        UnityWebRequest downloadRequest = new UnityWebRequest(GetPath(repo))
+        {
+            downloadHandler = new DownloadHandlerBuffer()
+        };
+
+        downloadRequest.SendWebRequest();
+
+        while (!downloadRequest.isDone)
+        {
+            downloadProgress = downloadRequest.downloadProgress;
+            yield return null;
+        }
 
         if (downloadRequest.result == UnityWebRequest.Result.ConnectionError || downloadRequest.result == UnityWebRequest.Result.DataProcessingError || downloadRequest.result == UnityWebRequest.Result.ProtocolError)
         {

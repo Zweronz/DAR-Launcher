@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -14,11 +15,17 @@ public class Launcher : MonoBehaviour
 
     public UIPanel mainPanel, gamePanel;
 
-    public UITexture background, icon;
+    public UITexture background, icon, gameButtonTexture;
 
-    public UILabel gameLabel;
+    public UILabel gameLabel, gameButtonLabel;
 
     public UIScrollView scrollView;
+
+    public SimpleButton gameButton, backButton;
+
+    public UIProgressBar gameDownloadBar;
+
+    public GameObject fetching;
 
     private AudioSource source;
 
@@ -29,16 +36,21 @@ public class Launcher : MonoBehaviour
     void Start()
     {
         source = GetComponent<AudioSource>();
+        backButton.onClick = SwitchBack;
 
         GithubController.RedownloadData(()=>
         {
             gameList = GameListParser.Parse();
+            fetching.SetActive(false);
+
             Sync();
         });
     }
 
     void Update()
     {
+        gameDownloadBar.value = GithubController.downloadProgress;
+
         if (switching)
         {
             if (panelTransparency > 0f)
@@ -69,11 +81,6 @@ public class Launcher : MonoBehaviour
 
         mainPanel.gameObject.SetActive(mainPanel.alpha > 0f);
         gamePanel.gameObject.SetActive(gamePanel.alpha > 0f);
-
-        if (Input.GetKeyDown(KeyCode.I))
-        {
-            SwitchBack();
-        }
     }
 
     private void Sync()
@@ -104,23 +111,82 @@ public class Launcher : MonoBehaviour
 
     public void Switch(GameListEntry entry)
     {
-        switching = true;
+        fetching.SetActive(true);
 
-        string bundle = entry.GetValue("overrideBundle");
-
-        if (bundle == "")
+        GithubController.RefreshGame(entry.GetValue("repo"), ()=>
         {
-            bundle = entry.id;
+            fetching.SetActive(false);
+            switching = true;
+
+            string bundle = entry.GetValue("overrideBundle");
+
+            if (bundle == "")
+            {
+                bundle = entry.id;
+            }
+
+            source.clip = Bundles.LoadBGM(bundle);
+            source.Play();
+
+            background.mainTexture = Bundles.LoadBackground(bundle);
+            icon.mainTexture = Bundles.LoadIcon(bundle);
+
+            gameLabel.text = entry.GetValue("name");
+            RefreshButton(entry, gameLabel.trueTypeFont = Bundles.Load<Font>("fonts", entry.GetValue("font")));
+        });
+    }
+
+    private void RefreshButton(GameListEntry entry, Font font)
+    {
+        gameButtonLabel.trueTypeFont = font;
+
+        switch (GithubController.currentStatus)
+        {
+            case GithubController.GameStatus.NotDownloaded:
+                gameButtonTexture.color = Color.red;
+                gameButtonLabel.text = "Download";
+                break;
+
+            case GithubController.GameStatus.Downloaded:
+                gameButtonTexture.color = Color.green;
+                gameButtonLabel.text = "Launch";
+                gameDownloadBar.gameObject.SetActive(false);
+                break;
+
+            case GithubController.GameStatus.UpdateNeeded:
+                gameButtonTexture.color = Color.blue;
+                gameButtonLabel.text = "Update";
+                break;
         }
 
-        source.clip = Bundles.LoadBGM(bundle);
-        source.Play();
+        gameButton.onClick = ()=>
+        {
+            LaunchGame(entry);
+        };
+    }
 
-        background.mainTexture = Bundles.LoadBackground(bundle);
-        icon.mainTexture = Bundles.LoadIcon(bundle);
+    private void LaunchGame(GameListEntry entry)
+    {
+        switch (GithubController.currentStatus)
+        {
+            case GithubController.GameStatus.UpdateNeeded:
+            case GithubController.GameStatus.NotDownloaded:
+                GithubController.DownloadGame(entry.GetValue("repo"), ()=>
+                {
+                    GithubController.RefreshGame(entry.GetValue("repo"), () => 
+                    {
+                        RefreshButton(entry, Bundles.Load<Font>("fonts", entry.GetValue("font")));
+                    });
+                });
+                break;
 
-        gameLabel.text = entry.GetValue("name");
-        gameLabel.trueTypeFont = Bundles.Load<Font>("fonts", entry.GetValue("font"));
+            case GithubController.GameStatus.Downloaded:
+                Process process = new Process();
+                process.StartInfo = new ProcessStartInfo(GithubController.currentExecutablePath);
+
+                process.Start();
+                break;
+        }
     }
 
     public void SwitchBack()
